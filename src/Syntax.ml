@@ -34,6 +34,10 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
+    let to_bool e = e != 0
+
+    let from_bool e = if e then 1 else 0
+
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -41,7 +45,27 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval s expr = match expr with
+        | Const c -> c
+        | Var v -> s v
+        | Binop (op, left, right) ->
+            let l = eval s left in
+            let r = eval s right in
+            match op with
+            | "+"  -> l + r
+            | "-"  -> l - r
+            | "*"  -> l * r
+            | "/"  -> l / r
+            | "%"  -> l mod r
+            | "<"  -> from_bool(l < r)
+            | "<=" -> from_bool(l <= r)
+            | ">"  -> from_bool(l > r)
+            | ">=" -> from_bool(l >= r)
+            | "==" -> from_bool(l = r)
+            | "!=" -> from_bool(l != r)
+            | "&&" -> from_bool(to_bool l && to_bool r)
+            | "!!" -> from_bool(to_bool l || to_bool r)
+            | _    -> failwith (Printf.sprintf "Unsupported operator %s" op)
 
   end
                     
@@ -65,7 +89,11 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval (st, input, output) st_type = match st_type with
+        | Read r                      -> (Expr.update r (List.hd input) st, List.tl input, output)
+        | Write expr                  -> (st, input, (Expr.eval st expr) :: output )
+        | Assign (name, expr)         -> (Expr.update name (Expr.eval st expr) st, input, output)
+        | Seq (first_type, last_type) -> eval (eval (st, input, output) first_type) last_type;;
                                                          
   end
 
