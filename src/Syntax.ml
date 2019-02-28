@@ -45,27 +45,30 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
+    let eval_op op l r = match op with
+        | "+"  -> l + r
+        | "-"  -> l - r
+        | "*"  -> l * r
+        | "/"  -> l / r
+        | "%"  -> l mod r
+        | "<"  -> from_bool(l < r)
+        | "<=" -> from_bool(l <= r)
+        | ">"  -> from_bool(l > r)
+        | ">=" -> from_bool(l >= r)
+        | "==" -> from_bool(l = r)
+        | "!=" -> from_bool(l != r)
+        | "&&" -> from_bool(to_bool l && to_bool r)
+        | "!!" -> from_bool(to_bool l || to_bool r)
+        | _    -> failwith (Printf.sprintf "Unsupported operator %s" op)
+
     let rec eval s expr = match expr with
         | Const c -> c
         | Var v -> s v
         | Binop (op, left, right) ->
             let l = eval s left in
             let r = eval s right in
-            match op with
-            | "+"  -> l + r
-            | "-"  -> l - r
-            | "*"  -> l * r
-            | "/"  -> l / r
-            | "%"  -> l mod r
-            | "<"  -> from_bool(l < r)
-            | "<=" -> from_bool(l <= r)
-            | ">"  -> from_bool(l > r)
-            | ">=" -> from_bool(l >= r)
-            | "==" -> from_bool(l = r)
-            | "!=" -> from_bool(l != r)
-            | "&&" -> from_bool(to_bool l && to_bool r)
-            | "!!" -> from_bool(to_bool l || to_bool r)
-            | _    -> failwith (Printf.sprintf "Unsupported operator %s" op)
+            eval_op op l r
+            
 
   end
                     
