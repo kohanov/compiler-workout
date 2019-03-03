@@ -81,7 +81,7 @@ module Expr =
     let parseBinExpr op = ostap(- $(op)), fun left right -> Binop (op, left, right)
 
     ostap (
-      expr2: 
+      expr: 
         !(Ostap.Util.expr
           (fun x -> x)
           (Array.map (fun (assoc, op_list) -> assoc, List.map parseBinExpr op_list)
@@ -96,7 +96,7 @@ module Expr =
           primary
         );
 
-      primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr2 -")"
+      primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
     )
 
   end
@@ -130,8 +130,8 @@ module Stmt =
     (* Statement parser *)
     ostap (
       stmt: "read (" s: IDENT ")" {Read s}
-          | "write (" e: !(Expr.expr2) ")" {Write e}
-          | s:IDENT ":=" e: !(Expr.expr2) {Assign (s, e)};
+          | "write (" e: !(Expr.expr) ")" {Write e}
+          | s:IDENT ":=" e: !(Expr.expr) {Assign (s, e)};
 
       parse: x: stmt ";" xs: parse {Seq (x, xs)} | stmt
     )
