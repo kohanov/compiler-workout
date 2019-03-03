@@ -78,8 +78,25 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
    
     *)
+    let parseBinExpr op = ostap(- $(op)), fun left right -> Binop (op, left, right)
+
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      expr2: 
+        !(Ostap.Util.expr
+          (fun x -> x)
+          (Array.map (fun (assoc, op_list) -> assoc, List.map parseBinExpr op_list)
+            [|
+              `Lefta, ["!!"];
+              `Lefta, ["&&"];
+              `Nona,  ["<="; "<"; ">="; ">"; "=="; "!="];
+              `Lefta, ["+"; "-"];
+              `Lefta, ["*"; "/"; "%"];
+            |]
+          )
+          primary
+        );
+
+      primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr2 -")"
     )
 
   end
@@ -112,7 +129,11 @@ module Stmt =
 
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      stmt: "read (" s: IDENT ")" {Read s}
+          | "write (" e: !(Expr.expr2) ")" {Write e}
+          | s:IDENT ":=" e: !(Expr.expr2) {Assign (s, e)};
+
+      parse: x: stmt ";" xs: parse {Seq (x, xs)} | stmt
     )
       
   end
