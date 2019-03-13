@@ -1,5 +1,6 @@
 open GT       
 open Language
+open List
        
 (* The type for the stack machine instructions *)
 @type insn =
@@ -18,13 +19,26 @@ type prg = insn list
  *)
 type config = int list * Stmt.config
 
+(* application *)
+let ($) f x = f x
+
 (* Stack machine interpreter
 
      val eval : config -> prg -> config
 
    Takes a configuration and a program, and returns a configuration as a result
 *)                         
-let rec eval conf prog = failwith "Not yet implemented"
+let rec eval cfg programs =
+    let eval_one (stack, (st, input, output)) p = match p with
+        | BINOP op -> ((Expr.eval_op op (hd $ tl stack) (hd stack)) :: (tl $ tl stack), (st, input, output))
+        | CONST c  -> (c :: stack, (st, input, output))
+        | READ     -> (hd input :: stack, (st, tl input, output))
+        | WRITE    -> (tl stack, (st, input, output @ [hd stack]))
+        | LD s     -> (st s :: stack, (st, input, output))
+        | ST s     -> (tl stack, (Expr.update s (hd stack) st, input, output))
+    in match programs with
+    | [] -> cfg
+    | program :: other -> eval (eval_one cfg program) other;;
 
 (* Top-level evaluation
 
