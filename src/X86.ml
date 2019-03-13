@@ -80,7 +80,23 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile _ _ = failwith "Not yet implemented"
+
+(* merge_answers : instr list -> (env * instr list) -> env * instr list   *)
+let merge_answers head (environ, tail) = environ, (head @ tail)
+
+let rec compile environ programs = match programs with
+  | [] -> environ, []
+  | program::other ->
+    let result_environ, instr_list  = (match program with
+      | BINOP op -> failwith "Not yet implemented"
+      | CONST c  -> failwith "Not yet implemented"
+      | READ     -> failwith "Not yet implemented"
+      | WRITE    -> failwith "Not yet implemented"
+      | LD s     -> let operand, new_env = environ#allocate in
+                    let var_name = environ#loc s in new_env, [Mov ((M var_name), operand)]
+      | ST s     -> let operand, new_env = environ#pop in
+                    let var_name = environ#loc s in new_env, [Mov (operand, (M var_name))]
+    ) in merge_answers instr_list (compile result_environ other)
 
 (* A set of strings *)           
 module S = Set.Make (String)
