@@ -99,7 +99,7 @@ let cmp op l r opnd : instr list =
 
 (* compile_binop : string -> env -> instr list   *)
 let compile_binop op environ =
-  let l, r, environ = environ#pop2 in
+  let r, l, environ = environ#pop2 in
   let opnd, new_env = environ#allocate in
   let instr_list    = match op with
   | "+" | "-" | "*" -> (match l, r with
@@ -107,7 +107,7 @@ let compile_binop op environ =
       | _        -> [Binop (op, r, l); Mov (l, opnd)]
   )
   | "/" | "%" -> let output = if op = "/" then eax else edx
-                 in [Mov (l, eax); zero eax; Cltd; IDiv r; Mov (output, opnd)]
+                 in [Mov (l, eax); zero edx; Cltd; IDiv r; Mov (output, opnd)]
   | "<" | "<=" | ">" | ">=" | "==" | "!=" -> (match l, r with
       | S _, S _ -> [Mov (l, edx)] @ cmp op l r opnd
       | _          -> cmp op l r opnd
