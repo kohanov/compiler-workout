@@ -84,11 +84,47 @@ open SM
 (* merge_answers : instr list -> (env * instr list) -> env * instr list   *)
 let merge_answers head (environ, tail) = environ, (head @ tail)
 
+let zero opnd : instr = Binop ("^", opnd, opnd)
+
+let cmp op l r opnd : instr list =
+  let op_suffix = match op with
+    | "<"  -> "l"
+    | "<=" -> "le"
+    | ">"  -> "g"
+    | ">=" -> "ge"
+    | "==" -> "e"
+    | "!=" -> "ne"
+    | _    -> failwith (Printf.sprintf "Unknown op %s" op)
+  in [zero eax; Binop ("cmp", r, l); Set (op_suffix, "%al"); Mov (eax, opnd)]
+
+(* compile_binop : string -> env -> instr list   *)
+let compile_binop op environ =
+  let l, r, environ = environ#pop2 in
+  let opnd, new_env = environ#allocate in
+  let instr_list    = match op with
+  | "+" | "-" | "*" -> (match l, r with
+      | S _, S _ -> [Mov (l, eax); Binop (op, r, eax); Mov (eax, opnd)]
+      | _        -> [Binop (op, r, l); Mov (l, opnd)]
+  )
+  | "/" | "%" -> let output = if op = "/" then eax else edx
+                 in [Mov (l, eax); zero eax; Cltd; IDiv r; Mov (output, opnd)]
+  | "<" | "<=" | ">" | ">=" | "==" | "!=" -> (match l, r with
+      | S _, S _ -> [Mov (l, edx)] @ cmp op l r opnd
+      | _          -> cmp op l r opnd
+  )
+  | "&&" -> [zero eax; zero edx;
+             Binop ("cmp", L 0, l); Set ("ne", "%al");
+             Binop ("cmp", L 0, r); Set ("ne", "%dl");
+             Binop ("&&", eax, edx); Mov (eax, opnd)]
+  | "!!" -> [zero eax; Mov (l, edx); Binop ("!!", r, edx); Set ("nz", "%al"); Mov (eax, opnd)]
+  | _    -> failwith (Printf.sprintf "Unknown binop %s" op)
+  in new_env, instr_list
+
 let rec compile environ programs = match programs with
   | [] -> environ, []
   | program::other ->
     let result_environ, instr_list  = (match program with
-      | BINOP op -> failwith "Not yet implemented"
+      | BINOP op -> compile_binop op environ
       | CONST c  -> let operand, new_env = environ#allocate
                     in new_env, [Mov (L c, operand)]
       | READ     -> let operand, new_env = environ#allocate
