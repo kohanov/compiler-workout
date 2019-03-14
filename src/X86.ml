@@ -95,10 +95,10 @@ let rec compile environ programs = match programs with
                     in new_env, [Call "Lread"; Mov (eax, operand)]
       | WRITE    -> let operand, new_env = environ#pop
                     in new_env, [Push operand; Call "Lwrite"; Pop eax]
-      | LD s     -> let operand, new_env = environ#allocate
+      | LD s     -> let operand, new_env = (environ#global s)#allocate
                     in let var_name = environ#loc s
                     in new_env, [Mov ((M var_name), operand)]
-      | ST s     -> let operand, new_env = environ#pop
+      | ST s     -> let operand, new_env = (environ#global s)#pop
                     in let var_name = environ#loc s
                     in new_env, [Mov (operand, (M var_name))]
     ) in merge_answers instr_list (compile result_environ other)
