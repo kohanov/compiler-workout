@@ -89,13 +89,18 @@ let rec compile environ programs = match programs with
   | program::other ->
     let result_environ, instr_list  = (match program with
       | BINOP op -> failwith "Not yet implemented"
-      | CONST c  -> failwith "Not yet implemented"
-      | READ     -> failwith "Not yet implemented"
-      | WRITE    -> failwith "Not yet implemented"
-      | LD s     -> let operand, new_env = environ#allocate in
-                    let var_name = environ#loc s in new_env, [Mov ((M var_name), operand)]
-      | ST s     -> let operand, new_env = environ#pop in
-                    let var_name = environ#loc s in new_env, [Mov (operand, (M var_name))]
+      | CONST c  -> let operand, new_env = environ#allocate
+                    in new_env, [Mov (L c, operand)]
+      | READ     -> let operand, new_env = environ#allocate
+                    in new_env, [Call "Lread"; Mov (eax, operand)]
+      | WRITE    -> let operand, new_env = environ#pop
+                    in new_env, [Push operand; Call "Lwrite"; Pop eax]
+      | LD s     -> let operand, new_env = environ#allocate
+                    in let var_name = environ#loc s
+                    in new_env, [Mov ((M var_name), operand)]
+      | ST s     -> let operand, new_env = environ#pop
+                    in let var_name = environ#loc s
+                    in new_env, [Mov (operand, (M var_name))]
     ) in merge_answers instr_list (compile result_environ other)
 
 (* A set of strings *)           
