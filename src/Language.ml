@@ -6,6 +6,7 @@ open GT
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap.Combinators
        
+let ($) f x = f x
 (* Simple expressions: syntax and semantics *)
 module Expr =
   struct
@@ -37,6 +38,10 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
+    let to_bool e = e != 0
+
+    let from_bool e = if e then 1 else 0
+    
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -44,7 +49,29 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)                                                       
-    let eval st expr = failwith "Not yet implemented"
+    let eval_op op l r = match op with
+          | "+"  -> l + r
+          | "-"  -> l - r
+          | "*"  -> l * r
+          | "/"  -> l / r
+          | "%"  -> l mod r
+          | "<"  -> from_bool(l < r)
+          | "<=" -> from_bool(l <= r)
+          | ">"  -> from_bool(l > r)
+          | ">=" -> from_bool(l >= r)
+          | "==" -> from_bool(l = r)
+          | "!=" -> from_bool(l != r)
+          | "&&" -> from_bool(to_bool l && to_bool r)
+          | "!!" -> from_bool(to_bool l || to_bool r)
+          | _    -> failwith (Printf.sprintf "Unsupported operator %s" op)
+
+    let rec eval s expr = match expr with
+        | Const c -> c
+        | Var v -> s v
+        | Binop (op, left, right) ->
+            let l = eval s left in
+            let r = eval s right in
+            eval_op op l r
 
     (* Expression parser. You can use the following terminals:
 
@@ -52,8 +79,25 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
                                                                                                                   
     *)
-    ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+    let parseBinExpr op = ostap(- $(op)), fun left right -> Binop (op, left, right)
+
+    ostap (
+      expr: 
+        !(Ostap.Util.expr
+          (fun x -> x)
+          (Array.map (fun (assoc, op_list) -> assoc, List.map parseBinExpr op_list)
+            [|
+              `Lefta, ["!!"];
+              `Lefta, ["&&"];
+              `Nona,  ["<="; "<"; ">="; ">"; "=="; "!="];
+              `Lefta, ["+"; "-"];
+              `Lefta, ["*"; "/"; "%"];
+            |]
+          )
+          primary
+        );
+
+      primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
     )
     
   end
@@ -64,14 +108,14 @@ module Stmt =
 
     (* The type for statements *)
     @type t =
-    (* read into the variable           *) | Read   of string
-    (* write the value of an expression *) | Write  of Expr.t
-    (* assignment                       *) | Assign of string * Expr.t
-    (* composition                      *) | Seq    of t * t 
+    (* read into the variable           *) | Read    of string
+    (* write the value of an expression *) | Write   of Expr.t
+    (* assignment                       *) | Assign  of string * Expr.t
+    (* composition                      *) | Seq     of t * t 
     (* empty statement                  *) | Skip
-    (* conditional                      *) | If     of Expr.t * t * t
-    (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) (* add yourself *)  with show
+    (* conditional                      *) | If      of Expr.t * t * t
+    (* loop with a pre-condition        *) | While   of Expr.t * t
+    (* loop with a post-condition       *) | DoWhile of Expr.t * t with show
                                                                     
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list 
@@ -82,11 +126,39 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let rec eval conf stmt = failwith "Not yet implemented"
+    let rec eval (st, input, output) st_type = match st_type with
+        | Read r                      -> (Expr.update r (List.hd input) st, List.tl input, output)
+        | Write expr                  -> (st, input, output @ [Expr.eval st expr])
+        | Assign (name, expr)         -> (Expr.update name (Expr.eval st expr) st, input, output)
+        | Seq (first_type, last_type) -> eval (eval (st, input, output) first_type) last_type
+        | Skip                        -> (st, input, output)
+        | If (expr, l, r)             -> let cond = Expr.to_bool (Expr.eval st expr)
+                                         in eval (st, input, output) (if cond then l else r)
+        | While (cond, expr)          -> if (Expr.eval st cond) != 0
+                                         then eval (eval (st, input, output) expr) @@ st_type
+                                         else (st, input, output)
+        | DoWhile (cond, expr)        -> let (s, i, o) = eval (st, input, output) expr in
+                                         if (Expr.eval s cond) = 0
+                                         then eval (s, i, o) @@ st_type
+                                         else (s, i, o)
                                
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not yet implemented"}
+      if_tail: "fi" {Skip}
+             | "else" r: parse "fi" {r}
+             | "elif" e: !(Expr.expr) "then" l: parse r: if_tail {If (e, l, r)}
+      ;
+      stmt: "read" "(" s: IDENT ")" {Read s}
+          | "write" "(" e: !(Expr.expr) ")" {Write e}
+          | s:IDENT ":=" e: !(Expr.expr) {Assign (s, e)}
+          | "skip" {Skip}
+          | "if" e: !(Expr.expr) "then" l: parse r: if_tail {If (e, l ,r)}
+          | "while" cond: !(Expr.expr) "do" body: parse "od" {While (cond, body)}
+          | "repeat" body: parse "until" cond: !(Expr.expr) {DoWhile (cond, body)}
+          | "for" i: parse "," cond: !(Expr.expr) "," it: parse
+            "do" body: parse "od" {Seq (i, While(cond, Seq(body, it)))}
+      ;
+      parse: x: stmt ";" xs: parse {Seq (x, xs)} | stmt
     )
       
   end

@@ -86,7 +86,73 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code = failwith "Not yet implemented"
+(* merge_answers : instr list -> (env * instr list) -> env * instr list   *)
+let merge_answers head (environ, tail) = environ, (head @ tail)
+
+let zero opnd : instr = Binop ("^", opnd, opnd)
+
+let check_binop_register op from too = match from, too with
+  | R _, _ | L _, _ | _, R _ -> too, [Binop (op, from, too)]
+  | _                        -> edx, [Mov (too, edx); Binop(op, from, edx)]
+
+let cmp op l r opnd : instr list =
+  let op_suffix = match op with
+    | "<"  -> "l"
+    | "<=" -> "le"
+    | ">"  -> "g"
+    | ">=" -> "ge"
+    | "==" -> "e"
+    | "!=" -> "ne"
+    | _    -> failwith (Printf.sprintf "Unknown op %s" op)
+in let _, bin_op = check_binop_register "cmp" r l
+  in [zero eax] @ bin_op @ [Set (op_suffix, "%al"); Mov (eax, opnd)]
+
+(* compile_binop : string -> env -> instr list   *)
+let compile_binop op environ =
+  let r, l, environ = environ#pop2 in
+  let opnd, new_env = environ#allocate in
+  let instr_list    = match op with
+  | "+" | "-" | "*" -> let reg, bin_op = check_binop_register op r l
+                       in bin_op @ [Mov (reg, opnd)]
+  | "/" | "%" -> let output = if op = "/" then eax else edx
+                 in [Mov (l, eax); zero edx; Cltd; IDiv r; Mov (output, opnd)]
+  | "<" | "<=" | ">" | ">=" | "==" | "!=" -> (match l, r with
+      | S _, S _ -> [Mov (l, edx)] @ cmp op l r opnd
+      | _          -> cmp op l r opnd
+  )
+  | "&&" | "!!" -> [zero eax; zero edx;
+                    Binop ("cmp", L 0, l); Set ("ne", "%al");
+                    Binop ("cmp", L 0, r); Set ("ne", "%dl");
+                    Binop (op, eax, edx); Mov (edx, opnd)]
+  | _    -> failwith (Printf.sprintf "Unknown binop %s" op)
+  in new_env, instr_list
+
+let check_mov_register from too = match from, too with
+  | R _, _ | L _, _ | _, R _ -> [Mov (from, too)]
+  | _                        -> [Mov (from, eax); Mov (eax, too)]
+
+let rec compile environ programs = match programs with
+  | [] -> environ, []
+  | program::other ->
+    let result_environ, instr_list  = (match program with
+      | BINOP op    -> compile_binop op environ
+      | CONST c     -> let operand, new_env = environ#allocate
+                       in new_env, [Mov (L c, operand)]
+      | READ        -> let operand, new_env = environ#allocate
+                       in new_env, [Call "Lread"; Mov (eax, operand)]
+      | WRITE       -> let operand, new_env = environ#pop
+                       in new_env, [Push operand; Call "Lwrite"; Pop eax]
+      | LD s        -> let operand, new_env = (environ#global s)#allocate
+                       in let var_name = environ#loc s
+                       in new_env, check_mov_register (M var_name) operand
+      | ST s        -> let operand, new_env = (environ#global s)#pop
+                       in let var_name = environ#loc s
+                       in new_env, check_mov_register operand (M var_name)
+      | LABEL l     -> environ, [Label l]
+      | JMP l       -> environ, [Jmp l]
+      | CJMP (l, c) -> let operand, new_env = environ#pop
+                       in new_env, [Binop ("cmp", L 0, operand); CJmp (l, c)]
+    ) in merge_answers instr_list (compile result_environ other)
 
 (* A set of strings *)           
 module S = Set.Make (String)
