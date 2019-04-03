@@ -2,6 +2,7 @@
    The library provides "@type ..." syntax extension and plugins like show, etc.
 *)
 open GT
+open List
 
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap.Combinators
@@ -55,7 +56,7 @@ module Expr =
         +, -                 --- addition, subtraction
         *, /, %              --- multiplication, division, reminder
     *)
-      
+
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -150,11 +151,43 @@ module Stmt =
 
        which returns a list of formal parameters and a body for given definition
     *)
-    let rec eval _ = failwith "Not Implemented Yet"
+    let rec eval env cfg st_type =
+      let (st, input, output) = cfg in
+      match st_type with
+      | Read r                      -> (State.update r (hd input) st, tl input, output)
+      | Write expr                  -> (st, input, output @ [Expr.eval st expr])
+      | Assign (name, expr)         -> (State.update name (Expr.eval st expr) st, input, output)
+      | Seq (first_type, last_type) -> eval env (eval env cfg first_type) last_type
+      | Skip                        -> cfg
+      | If (expr, l, r)             -> let cond = (Expr.eval st expr) != 0
+                                       in eval env cfg (if cond then l else r)
+      | While (cond, expr)          -> if (Expr.eval st cond) != 0
+                                       then eval env (eval env cfg expr) st_type
+                                       else (st, input, output)
+      | Repeat (expr, cond)         -> let (s, i, o) = eval env cfg expr in
+                                       if (Expr.eval s cond) = 0
+                                       then eval env (s, i, o) st_type
+                                       else (s, i, o)
                                 
     (* Statement parser *)
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      if_tail: 
+          "fi" {Skip}
+        | "else" r: parse "fi" {r}
+        | "elif" e: !(Expr.parse) "then" l: parse r: if_tail {If (e, l, r)}
+      ;
+      stmt: 
+          "read" "(" s: IDENT ")" {Read s}
+        | "write" "(" e: !(Expr.parse) ")" {Write e}
+        | s:IDENT ":=" e: !(Expr.parse) {Assign (s, e)}
+        | "skip" {Skip}
+        | "if" e: !(Expr.parse) "then" l: parse r: if_tail {If (e, l ,r)}
+        | "while" cond: !(Expr.parse) "do" body: parse "od" {While (cond, body)}
+        | "repeat" body: parse "until" cond: !(Expr.parse) {Repeat (body, cond)}
+        | "for" i: parse "," cond: !(Expr.parse) "," it: parse
+          "do" body: parse "od" {Seq (i, While(cond, Seq(body, it)))}
+      ;
+      parse: x: stmt ";" xs: parse {Seq (x, xs)} | stmt
     )
       
   end
@@ -167,7 +200,17 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      parse: 
+        "fun" f: IDENT "(" args: (IDENT)* ")"
+        locals: (%"local" (IDENT)* )? "{"
+          body: !(Stmt.parse)
+        "}"
+        {
+          let locals = match locals with
+          | Some x -> x
+          | _ -> []
+          in f, (args, locals, body)
+        }
     )
 
   end
