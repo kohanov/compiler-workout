@@ -51,6 +51,18 @@ let rec eval envr cfg programs =
     | CJMP (l, c) :: o -> if (if l = "z" then (hd stack) == 0 else (hd stack) != 0)
                           then eval envr (ctrl, tl stack, (st, input, output)) (envr#labeled c)
                           else eval envr (ctrl, tl stack, (st, input, output)) o
+    | BEGIN (a,l) :: o -> let f_st = State.push_scope st (a @ l) in
+                          let f_st, f_stack = List.fold_left
+                            (fun (v, el :: tail) n ->  (State.update n el v, tail))
+                            (f_st, stack) a in
+                          eval envr (ctrl, f_stack, (f_st, input, output)) o
+    | END         :: o -> (match ctrl with
+                          | (prg, state) :: tail -> eval envr
+                              (tail, stack, (State.drop_scope st state, input, output)) prg
+                          | _                  -> cfg
+    )
+    | CALL f      :: o -> let label = envr#labeled f in
+                          eval envr ((o, st) :: ctrl, stack, (st, input, output)) label
 
 (* Top-level evaluation
 
@@ -113,10 +125,20 @@ let rec compile_impl stmt_type lbl : prg * bool =
                              let (res, _) = compile_impl e lbl in
                              [LABEL loop] @ res @ [LABEL cond] @
                              compile_expr c @ [CJMP ("z", loop)], false
+    | Stmt.Call (f, args) -> List.concat (List.map compile_expr (List.rev args)) @ [CALL f], false
                              ;;
 
-let compile (_, t) = let lbl = label#next in
-    let (result, used) = compile_impl t lbl in
+let compile_stmt stmt = let lbl = label#next in
+    let (result, used) = compile_impl stmt lbl in
     result @ if used then [LABEL lbl] else []
 ;;
-  
+
+let rec compile_def f_list = List.fold_left
+  (fun prev (f, (args, locals, e)) -> let body = compile_stmt e in
+                                      prev @ [LABEL f] @ [BEGIN (args, locals)] @ body @ [END]
+  ) [] f_list
+
+let compile (f_list, stmt) =
+  let stm = compile_stmt stmt in
+  let def = compile_def f_list in
+  stm @ [END] @ def

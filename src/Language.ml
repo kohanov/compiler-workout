@@ -168,7 +168,13 @@ module Stmt =
                                        if (Expr.eval s cond) = 0
                                        then eval env (s, i, o) st_type
                                        else (s, i, o)
-                                
+      | Call (f, args)              -> let (names, locals, e) = env#definition f
+                                       in let values = List.map (Expr.eval st) args
+                                       in let n2v = List.combine names values
+                                       in let f_st = State.push_scope st (names @ locals)
+                                       in let f_st = List.fold_left (fun x (n, v) -> State.update n v x) f_st n2v
+                                       in let st2, i2, o2 = eval env (f_st, input, output) e
+                                       in State.drop_scope st2 st, i2, o2
     (* Statement parser *)
     ostap (                                      
       if_tail: 
@@ -186,6 +192,7 @@ module Stmt =
         | "repeat" body: parse "until" cond: !(Expr.parse) {Repeat (body, cond)}
         | "for" i: parse "," cond: !(Expr.parse) "," it: parse
           "do" body: parse "od" {Seq (i, While(cond, Seq(body, it)))}
+        | f: IDENT "(" args: (!(Expr.parse))* ")" {Call (f, args)}
       ;
       parse: x: stmt ";" xs: parse {Seq (x, xs)} | stmt
     )
