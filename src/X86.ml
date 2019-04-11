@@ -178,7 +178,7 @@ let rec compile env programs = match programs with
 module S = Set.Make (String)
 
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = List.combine l (all_regs (List.length l))
                      
 class env =
   object (self)
