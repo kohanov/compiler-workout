@@ -131,7 +131,7 @@ let compile_binop op env =
   | _    -> failwith (Printf.sprintf "Unknown binop %s" op)
   in new_env, instr_list
 
-let all_regs count = List.init count (fun x -> x)
+let rec all_regs count = if count > 0 then all_regs (count - 1) @ [count - 1] else []
 
 let rec compile env programs = match programs with
   | [] -> env, []
