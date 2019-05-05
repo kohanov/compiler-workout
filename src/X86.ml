@@ -90,24 +90,93 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code =
-  let suffix = function
-  | "<"  -> "l"
-  | "<=" -> "le"
-  | "==" -> "e"
-  | "!=" -> "ne"
-  | ">=" -> "ge"
-  | ">"  -> "g"
-  | _    -> failwith "unknown operator"	
-  in
-  let rec compile' env scode = failwith "Not implemented" in
-  compile' env code
+
+(* merge_answers : instr list -> (env * instr list) -> env * instr list *)
+let merge_answers head (env, tail) = env, (head @ tail)
+
+let zero opnd : instr = Binop ("^", opnd, opnd)
+
+let check_binop_register op from too = match from, too with
+  | R _, _ | L _, _ | _, R _ -> too, [Binop (op, from, too)]
+  | _                        -> edx, [Mov (too, edx); Binop(op, from, edx)]
+
+let cmp op l r opnd : instr list =
+  let op_suffix = match op with
+    | "<"  -> "l"
+    | "<=" -> "le"
+    | ">"  -> "g"
+    | ">=" -> "ge"
+    | "==" -> "e"
+    | "!=" -> "ne"
+    | _    -> failwith (Printf.sprintf "Unknown op %s" op)
+in let _, bin_op = check_binop_register "cmp" r l
+  in [zero eax] @ bin_op @ [Set (op_suffix, "%al"); Mov (eax, opnd)]
+
+(* compile_binop : string -> env -> instr list   *)
+let compile_binop op env =
+  let r, l, env = env#pop2 in
+  let opnd, new_env = env#allocate in
+  let instr_list    = match op with
+  | "+" | "-" | "*" -> let reg, bin_op = check_binop_register op r l
+                       in bin_op @ [Mov (reg, opnd)]
+  | "/" | "%" -> let output = if op = "/" then eax else edx
+                 in [Mov (l, eax); zero edx; Cltd; IDiv r; Mov (output, opnd)]
+  | "<" | "<=" | ">" | ">=" | "==" | "!=" -> (match l, r with
+      | S _, S _ -> [Mov (l, edx)] @ cmp op l r opnd
+      | _          -> cmp op l r opnd
+  )
+  | "&&" | "!!" -> [zero eax; zero edx;
+                    Binop ("cmp", L 0, l); Set ("ne", "%al");
+                    Binop ("cmp", L 0, r); Set ("ne", "%dl");
+                    Binop (op, eax, edx); Mov (edx, opnd)]
+  | _    -> failwith (Printf.sprintf "Unknown binop %s" op)
+  in new_env, instr_list
+
+let rec list_range count = if count > 0 then list_range (count - 1) @ [count - 1] else []
+
+let rec compile env programs = match programs with
+  | [] -> env, []
+  | program::other ->
+    let result_env, instr_list  = (match program with
+      | BINOP op -> compile_binop op env
+      | CONST c -> let operand, new_env = env#allocate
+        in new_env, [Mov (L c, operand)]
+      | LD s -> let operand, new_env = (env#global s)#allocate
+        in let var_name = new_env#loc s
+        in new_env, [Mov (var_name, eax); Mov (eax, operand)]
+      | ST s -> let operand, new_env = (env#global s)#pop
+        in let var_name = new_env#loc s
+        in new_env, [Mov (operand, eax); Mov (eax, var_name)]
+      | LABEL l -> env, [Label l]
+      | JMP l -> env, [Jmp l]
+      | CJMP (l, c) -> let operand, new_env = env#pop
+        in new_env, [Binop ("cmp", L 0, operand); CJmp (l, c)]
+      | BEGIN (f, args, locals) -> let new_env = env#enter f args locals in
+        new_env, [Push ebp; Mov (esp, ebp)]
+        @ List.map (fun n -> Push (R n)) (list_range num_of_regs)
+        @ [Binop ("-", M ("$" ^ new_env#lsize), esp)]
+      | END -> env, [Label env#epilogue]
+        @ List.map (fun n -> Pop (R n)) (List.rev (list_range num_of_regs))
+        @ [Mov (ebp, esp); Pop ebp; Ret]
+        @ [Meta (Printf.sprintf "\t.set %s, %d" env#lsize (env#allocated * word_size))]
+      | CALL (f, args, flag) ->
+        let f = match f with | "read" -> "Lread" | "write" -> "Lwrite" | _ -> f in
+        let pop_args = (fun (env, args) _ -> let arg, env = env#pop in (env, arg :: args)) in
+        let tmp_env, new_args = List.fold_left pop_args (env, []) (list_range args) in
+        let push_cmds = List.map (fun arg -> Push arg) new_args in
+        let return_block = push_cmds @ [Call f; Binop ("+", L (args * word_size), esp)] in
+        if flag then let op, new_env = tmp_env#allocate in new_env, return_block @ [Mov (eax, op)]
+        else tmp_env, return_block
+      | RET opt -> if opt
+        then let op, new_env = env#pop in new_env, [Mov (op, eax); Jmp new_env#epilogue]
+        else env, [Jmp env#epilogue]
+    ) in merge_answers instr_list (compile result_env other)
 
 (* A set of strings *)           
 module S = Set.Make (String)
 
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = List.combine l (list_range (List.length l))
                      
 class env =
   object (self)
